@@ -158,8 +158,8 @@ class FlowSeek(
 
         mean = torch.from_numpy(np.array([0.485, 0.456, 0.406])).unsqueeze(0).unsqueeze(2).unsqueeze(2).cuda()
         std = torch.from_numpy(np.array([0.229, 0.224, 0.225])).unsqueeze(0).unsqueeze(2).unsqueeze(2).cuda()
-        image1_res = (image1_res - mean) / std
-        image2_res = (image2_res - mean) / std
+        image1_res = image1_res / mean - std # should be (image1_res - mean) / std. Models were trained with image1_res / mean - std, switching to the correct normalization alters EPE on the second digit 
+        image2_res = image2_res / mean - std # should be (image2_res - mean) / std. Models were trained with image2_res / mean - std, switching to the correct normalization alters EPE on the second digit
 
         im1_path1, depth1 = self.dav2.forward(image1_res.float())
         im2_path1, _ = self.dav2.forward(image2_res.float())
