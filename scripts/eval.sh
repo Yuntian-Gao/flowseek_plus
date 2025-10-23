@@ -1,36 +1,62 @@
-echo "TABLE 3 (CT)"
-echo "Validation FlowSeek (T)"
-python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_CT.pth --dataset sintel
-python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_CT.pth --dataset kitti
+#!/bin/bash
 
-echo "Validation FlowSeek (S)"
-python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_CT.pth --dataset sintel
-python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_CT.pth --dataset kitti
+# 默认值
+SIZE="M"
+GPUS="5"
 
-echo "Validation FlowSeek (M)"
-python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_CT.pth --dataset sintel
-python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_CT.pth --dataset kitti
+# 解析命令行参数
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --size)
+      SIZE="$2"
+      shift 2
+      ;;
+    --gpus)
+      GPUS="$2"
+      shift 2
+      ;;
+    *)
+      echo "未知参数: $1"
+      exit 1
+      ;;
+  esac
+done
 
-echo "Validation FlowSeek (L)"
-python evaluate.py --cfg config/eval/flowseek-L.json --model weights/flowseek_M_CT.pth --dataset sintel
-python evaluate.py --cfg config/eval/flowseek-L.json --model weights/flowseek_M_CT.pth --dataset kitti
+# 设置可见 GPU
+export CUDA_VISIBLE_DEVICES=$GPUS
+# echo "TABLE 3 (CT)"
+# echo "Validation FlowSeek (T)"
+# python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_CT.pth --dataset sintel
+# python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_CT.pth --dataset kitti
 
-echo "TABLE 3 (Tartan+CT)"
-echo "Validation FlowSeek (T)"
-python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_TartanCT.pth --dataset sintel
-python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_TartanCT.pth --dataset kitti
+# echo "Validation FlowSeek (S)"
+# python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_CT.pth --dataset sintel
+# python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_CT.pth --dataset kitti
 
-echo "Validation FlowSeek (S)"
-python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_TartanCT.pth --dataset sintel
-python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_TartanCT.pth --dataset kitti
+# echo "Validation FlowSeek (M)"
+# python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_CT.pth --dataset sintel
+# python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_CT.pth --dataset kitti
 
-echo "Validation FlowSeek (M)"
-python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_TartanCT.pth --dataset sintel
-python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_TartanCT.pth --dataset kitti
+# echo "Validation FlowSeek (L)"
+# python evaluate.py --cfg config/eval/flowseek-L.json --model weights/flowseek_M_CT.pth --dataset sintel
+# python evaluate.py --cfg config/eval/flowseek-L.json --model weights/flowseek_M_CT.pth --dataset kitti
 
-echo "Validation FlowSeek (L)"
-python evaluate.py --cfg config/eval/flowseek-L.json --model weights/flowseek_M_TartanCT.pth --dataset sintel
-python evaluate.py --cfg config/eval/flowseek-L.json --model weights/flowseek_M_TartanCT.pth --dataset kitti
+# echo "TABLE 3 (Tartan+CT)"
+# echo "Validation FlowSeek (T)"
+# python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_TartanCT.pth --dataset sintel
+# python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_TartanCT.pth --dataset kitti
+
+# echo "Validation FlowSeek (S)"
+# python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_TartanCT.pth --dataset sintel
+# python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_TartanCT.pth --dataset kitti
+
+# echo "Validation FlowSeek (M)"
+# python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_TartanCT.pth --dataset sintel
+# python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_TartanCT.pth --dataset kitti
+
+# echo "Validation FlowSeek (L)"
+# python evaluate.py --cfg config/eval/flowseek-L.json --model weights/flowseek_M_TartanCT.pth --dataset sintel
+# python evaluate.py --cfg config/eval/flowseek-L.json --model weights/flowseek_M_TartanCT.pth --dataset kitti
 
 echo "TABLE 4"
 echo "Validation FlowSeek (T)"

@@ -79,18 +79,27 @@ def bilinear_sampler(img, coords, mode='bilinear', mask=False):
     ygrid = 2*ygrid/(H-1) - 1
 
     grid = torch.cat([xgrid, ygrid], dim=-1)
+    # grid.shape = [8192, 9, 9, 2]
+    
+    # 使用PyTorch的grid_sample进行双线性采样
+    # img.shape = [8192, 1, 64, 64]
+    # grid.shape = [8192, 9, 9, 2]
     img = F.grid_sample(img, grid, align_corners=True)
+    # img.shape = [8192, 1, 9, 9]  # 采样后的结果
 
+    # 如果需要掩码，创建有效坐标掩码
     if mask:
         mask = (xgrid > -1) & (ygrid > -1) & (xgrid < 1) & (ygrid < 1)
+        # mask.shape = [8192, 9, 9, 1]
         return img, mask.float()
+        # 返回 img.shape = [8192, 1, 9, 9], mask.shape = [8192, 9, 9, 1]
 
     return img
 
 def coords_grid(batch, ht, wd, device):
     coords = torch.meshgrid(torch.arange(ht, device=device), torch.arange(wd, device=device))
     coords = torch.stack(coords[::-1], dim=0).float()
-    return coords[None].repeat(batch, 1, 1, 1)
+    return coords[None].repeat(batch, 1, 1, 1) # [B, 2, H, W]
 
 
 def upflow8(flow, mode='bilinear'):

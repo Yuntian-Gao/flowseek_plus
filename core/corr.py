@@ -80,7 +80,7 @@ class CorrBlock:
             batch, h1, w1, dim, h2, w2 = corr.shape
             corr = corr.reshape(batch*h1*w1, dim, h2, w2)
             fmap2 = F.interpolate(fmap2, scale_factor=0.5, mode='bilinear', align_corners=False)
-            self.corr_pyramid.append(corr)
+            self.corr_pyramid.append(corr) # [B*H1/8*w1/8, 1, H1/8, W1/8]
 
     def __call__(self, coords, dilation=None):
         r = self.radius
@@ -97,13 +97,13 @@ class CorrBlock:
             device = coords.device
             dx = torch.linspace(-r, r, 2*r+1, device=device)
             dy = torch.linspace(-r, r, 2*r+1, device=device)
-            delta = torch.stack(torch.meshgrid(dy, dx), axis=-1)
-            delta_lvl = delta.view(1, 2*r+1, 2*r+1, 2)
-            delta_lvl = delta_lvl * dilation.view(batch * h1 * w1, 1, 1, 1)
+            delta = torch.stack(torch.meshgrid(dy, dx), axis=-1) # [2*r+1, 2*r+1, 2]
+            delta_lvl = delta.view(1, 2*r+1, 2*r+1, 2) # [1, 2*r+1, 2*r+1, 2]
+            delta_lvl = delta_lvl * dilation.view(batch * h1 * w1, 1, 1, 1) # [B*H1/8*w1/8, 2*r+1, 2*r+1 2]
             centroid_lvl = coords.reshape(batch*h1*w1, 1, 1, 2) / 2**i
             coords_lvl = centroid_lvl + delta_lvl
             corr = bilinear_sampler(corr, coords_lvl)
-            corr = corr.view(batch, h1, w1, -1)
+            corr = corr.view(batch, h1, w1, -1) 
             out_pyramid.append(corr)
 
         out = torch.cat(out_pyramid, dim=-1)

@@ -17,10 +17,10 @@ import torch.utils.data as data
 
 from config.parser import parse_args
 
-import datasets
-from flowseek import *
+import core.datasets as datasets
+from core.flowseek import *
 from tqdm import tqdm
-from utils.utils import resize_data, load_ckpt
+from core.utils.utils import resize_data, load_ckpt
 
 def forward_flow(args, model, image1, image2):
     output = model(image1, image2, iters=args.iters, test_mode=True)
@@ -132,7 +132,7 @@ def validate_layeredflow_first(args, model):
             return l is None or x in l
         assert type(subset) == tuple and len(subset) == 2
         return in_list(mat, subset[0]) and in_list(layer, subset[1])
-        
+    
     model.eval()
     val_dataset = datasets.LayeredFlow(downsample=8, split='val', root=args.paths['layeredflow'])
 

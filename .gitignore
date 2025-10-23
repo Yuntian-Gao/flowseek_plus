@@ -1,0 +1,11 @@
+weights
+assets
+LICENSE.md
+datasets
+*.pyc
+__pycache__/
+logs
+results
+*.log
+checkpoints/
+data

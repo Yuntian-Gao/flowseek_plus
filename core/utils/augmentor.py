@@ -111,7 +111,7 @@ class FlowAugmentor:
             y0 = np.random.randint(0, img1.shape[0] - self.crop_size[0])
         if img1.shape[1] == self.crop_size[1]:
             x0 = 0
-        else:
+        else:   
             x0 = np.random.randint(0, img1.shape[1] - self.crop_size[1])
         
         img1 = img1[y0:y0+self.crop_size[0], x0:x0+self.crop_size[1]]

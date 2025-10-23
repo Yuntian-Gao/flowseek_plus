@@ -553,7 +553,7 @@ def fetch_dataloader(args, rank=0, world_size=1, use_ddp=False):
     """ Create the data loader for the corresponding trainign set """
     g = torch.Generator()
     g.manual_seed(args.seed)
-
+    print("args:",args.dataset )
     if args.dataset == 'chairs':
         aug_params = {'crop_size': args.image_size, 'min_scale': args.scale - 0.1, 'max_scale': args.scale + 1.0, 'do_flip': True}
         train_dataset = FlyingChairs(aug_params, split='training', root=args.paths['chairs'])

@@ -1,12 +1,12 @@
 {
-    "name": "flowseek_M_Tartan",
-    "dataset": "tartanair",
+    "name": "flowseek_T_C",
+    "dataset": "chairs",
     "gpus": [0],
 
     "use_var": true,
     "var_min": 0,
     "var_max": 10,
-    "pretrain": "resnet34",
+    "pretrain": "resnet18",
     "initial_dim": 64,
     "block_dims": [64, 128, 256],
     "radius": 4,
@@ -14,16 +14,16 @@
     "num_blocks": 2,
     "iters": 4,
 
-    "image_size": [480, 640],
+    "image_size": [368, 496],
     "scale": 0,
-    "batch_size": 4,
+    "batch_size": 8,
     "epsilon": 1e-8,
-    "lr": 4e-4,
-    "wdecay": 1e-5,
+    "lr": 2.5e-4,
+    "wdecay": 1e-4,
     "dropout": 0,
     "clip": 1.0,
-    "gamma": 0.85,
-    "num_steps": 300000,
+    "gamma": 0.8,
+    "num_steps": 100000,
 
-    "da_size": "vitb"
+    "da_size": "vits"
 }

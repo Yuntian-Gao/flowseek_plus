@@ -10,14 +10,14 @@ import numpy as np
 import random
 
 from config.parser import parse_args
-from flowseek import FlowSeek
+from core.flowseek import FlowSeek
 
 import torch
 import torch.optim as optim
 
-from datasets import fetch_dataloader
-from utils.utils import load_ckpt
-from loss import sequence_loss
+from core.datasets import fetch_dataloader
+from core.utils.utils import load_ckpt
+from core.loss import sequence_loss
 import tqdm
 import os
 
@@ -52,13 +52,14 @@ def train(args, rank=0, world_size=1, use_ddp=False):
         f.write('\n\n')
 
     model.train()
+    
     train_loader = fetch_dataloader(args, rank=rank, world_size=world_size, use_ddp=False)
     optimizer, scheduler = fetch_optimizer(args, model)
     total_steps = 0
     VAL_FREQ = 10000
     epoch = 0
     should_keep_training = True
-
+    
     while should_keep_training:
         epoch += 1
         for i_batch, data_blob in enumerate(tqdm.tqdm(train_loader)):
@@ -82,6 +83,7 @@ def train(args, rank=0, world_size=1, use_ddp=False):
             total_steps += 1
 
     PATH = '%s/%s.pth' % (args.savedir, args.name)
+    
     if rank == 0:
         torch.save(model.module.state_dict(), PATH)
 

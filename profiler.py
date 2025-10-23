@@ -10,7 +10,7 @@ sys.path.append('core')
 import argparse
 import torch
 from config.parser import parse_args
-from flowseek import FlowSeek
+from core.flowseek import FlowSeek
 
 def main():
     parser = argparse.ArgumentParser()

@@ -201,8 +201,8 @@ class FlowSeek(
         bnet = self.init_conv(bnet)
         netbases, ctxbases = torch.split(bnet, [self.args.dim, self.args.dim], dim=1)
 
-        context = torch.cat((context, ctxbases), 1)
-        net = torch.cat((net, netbases), 1)
+        context = torch.cat((context, ctxbases), 1) #context motion base
+        net = torch.cat((net, netbases), 1) #隐藏态H
 
         # init flow
         flow_update = self.flow_head(net)
@@ -226,7 +226,7 @@ class FlowSeek(
         for itr in range(iters):
             N, _, H, W = flow_8x.shape
             flow_8x = flow_8x.detach()
-            coords2 = (coords_grid(N, H, W, device=image1.device) + flow_8x).detach()
+            coords2 = (coords_grid(N, H, W, device=image1.device) + flow_8x).detach() #光流＋网格坐标=新的坐标
             corr = corr_fn(coords2, dilation=dilation)
             net = self.update_block(net, context, corr, flow_8x)
             flow_update = self.flow_head(net)
