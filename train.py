@@ -4,6 +4,9 @@
 
 import sys
 sys.path.append('core')
+#设置可见gpu 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import argparse
 import numpy as np
@@ -64,8 +67,9 @@ def train(args, rank=0, world_size=1, use_ddp=False):
         epoch += 1
         for i_batch, data_blob in enumerate(tqdm.tqdm(train_loader)):
             optimizer.zero_grad()
-            image1, image2, flow, valid = [x.to(f'cuda:{model.device_ids[0]}') for x in data_blob] 
-            output = model(image1, image2, flow_gt=flow, iters=args.iters)
+            image1, image2, flow, valid, mask = [x.to(f'cuda:{model.device_ids[0]}') for x in data_blob] 
+          
+            output = model(image1, image2,mask, flow_gt=flow, iters=args.iters)
             loss = sequence_loss(output, flow, valid, args.gamma)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip) 
@@ -96,10 +100,10 @@ def main(rank, world_size, args, use_ddp):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', help='experiment configure file name', required=True, type=str)
-    parser.add_argument('--restore_ckpt', help='restore previews weights', default=None)
+    parser.add_argument('--cfg', help='experiment configure file name',  type=str,default='config/train/C368x496-T.json')
+    parser.add_argument('--restore_ckpt', help='restore previews weights', default=None, type=str)
 
-    parser.add_argument('--savedir', help='enable Depth Anything v2', type=str)
+    parser.add_argument('--savedir', help='enable Depth Anything v2', type=str, default='checkpoints/')
     parser.add_argument('--seed', help='set random seed', type=float, default=0)
     args = parse_args(parser)
 

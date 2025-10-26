@@ -34,6 +34,7 @@ class FlowDataset(data.Dataset):
         self.flow_list = []
         self.image_list = []
         self.mask_list = []
+        self.entity_mask_list=[]
         self.extra_info = []
 
     def __getitem__(self, index):
@@ -46,14 +47,16 @@ class FlowDataset(data.Dataset):
     def fetch(self, index):
 
         if self.is_test:
-            img1 = frame_utils.read_gen(self.image_list[index][0])
+            img1 = frame_utils.read_gen(self.image_list[index][0])  
             img2 = frame_utils.read_gen(self.image_list[index][1])
+            entity_mask = np.load(self.entity_mask[index]).astype(np.uint8)
             img1 = np.array(img1).astype(np.uint8)[..., :3]
             img2 = np.array(img2).astype(np.uint8)[..., :3]
 
-            img1 = torch.from_numpy(img1).permute(2, 0, 1).float()
-            img2 = torch.from_numpy(img2).permute(2, 0, 1).float()
-            return img1, img2, self.extra_info[index]
+            img1 = torch.from_numpy(img1).permute(2, 0, 1).float()  # 3,H,W
+            img2 = torch.from_numpy(img2).permute(2, 0, 1).float()  # 3,H,W
+            entity_mask=torch.from_numpy(entity_mask).byte()
+            return img1, img2, self.extra_info[index],entity_mask
 
         if not self.init_seed:
             worker_info = torch.utils.data.get_worker_info()
@@ -93,6 +96,9 @@ class FlowDataset(data.Dataset):
 
         img1 = frame_utils.read_gen(self.image_list[index][0])
         img2 = frame_utils.read_gen(self.image_list[index][1])
+        
+        entity_mask = np.load(self.entity_mask_list[index]).astype(np.uint8)
+        
         flow = np.array(flow).astype(np.float32)
         img1 = np.array(img1).astype(np.uint8)
         img2 = np.array(img2).astype(np.uint8)
@@ -112,12 +118,13 @@ class FlowDataset(data.Dataset):
 
         if self.augmentor is not None:
             if self.sparse:
-                img1, img2, flow, valid = self.augmentor(img1, img2, flow, valid)
+                img1, img2, flow, valid,entity_mask = self.augmentor(img1, img2, flow, valid,entity_mask)
             else:
-                img1, img2, flow = self.augmentor(img1, img2, flow)
+                img1, img2, flow,entity_mask = self.augmentor(img1, img2, flow,entity_mask)
 
         img1 = torch.from_numpy(img1).permute(2, 0, 1).float()
         img2 = torch.from_numpy(img2).permute(2, 0, 1).float()
+        entity_mask = torch.from_numpy(entity_mask).byte()
         flow = torch.from_numpy(flow).permute(2, 0, 1).float()
         flow[torch.isnan(flow)] = 0
         flow[flow.abs() > 1e9] = 0
@@ -127,7 +134,7 @@ class FlowDataset(data.Dataset):
         else:
             valid = (flow[0].abs() < 1000) & (flow[1].abs() < 1000)
 
-        return img1, img2, flow, valid.float()
+        return img1, img2, flow, valid.float(),entity_mask
 
 
     def __rmul__(self, v):
@@ -138,13 +145,13 @@ class FlowDataset(data.Dataset):
     def __len__(self):
         return len(self.image_list)
         
-
+###TODO 所有数据集支持entity_mask
 class MpiSintel(FlowDataset):
     def __init__(self, aug_params=None, split='training', root='data/sintel', dstype='clean'):
         super(MpiSintel, self).__init__(aug_params)
         flow_root = osp.join(root, split, 'flow')
         image_root = osp.join(root, split, dstype)
-
+        
         if split == 'test':
             self.is_test = True
 
@@ -163,7 +170,9 @@ class FlyingChairs(FlowDataset):
 
         images = sorted(glob(osp.join(root, '*.ppm')))
         flows = sorted(glob(osp.join(root, '*.flo')))
-        assert (len(images)//2 == len(flows))
+        entity_masks = sorted(glob(osp.join(root, '*.npy')))
+        
+        assert (len(images)//2 == len(flows)) and (len(images)//2 == len(entity_masks))
 
         split_list = np.loadtxt('chairs_split.txt', dtype=np.int32)
         for i in range(len(flows)):
@@ -171,11 +180,13 @@ class FlyingChairs(FlowDataset):
             if (split=='training' and xid==1) or (split=='validation' and xid==2):
                 self.flow_list += [ flows[i] ]
                 self.image_list += [ [images[2*i], images[2*i+1]] ]
+                self.entity_mask_list += [ entity_masks[i] ]
 
 
 class FlyingThings3D(FlowDataset):
     def __init__(self, aug_params=None, root='data/FlyingThings3D/', dstype='frames_cleanpass', split='TRAIN'):
         super(FlyingThings3D, self).__init__(aug_params)
+        self.mask_list = []  # <-- 1. 新增：初始化 mask_list
 
         for cam in ['left']:
             for direction in ['into_future', 'into_past']:
@@ -188,13 +199,40 @@ class FlyingThings3D(FlowDataset):
                 for idir, fdir in zip(image_dirs, flow_dirs):
                     images = sorted(glob(osp.join(idir, '*.png')) )
                     flows = sorted(glob(osp.join(fdir, '*.pfm')) )
+                    
+                    # <-- 2. 新增：根据 left 目录 (idir) 推导出 mask 目录 (mdir)
+                    # idir 示例: 'data/FlyingThings3D/frames_cleanpass/TRAIN/A/0001/left'
+                    # mdir 目标: 'data/FlyingThings3D/frames_cleanpass/TRAIN/A/0001/mask'
+                    mdir = osp.join(osp.dirname(idir), 'mask')
+                    
+                    # <-- 3. 新增：加载 .npy 格式的 mask 文件
+                    entity_masks = sorted(glob(osp.join(mdir, '*.npy')) )
+
+                    # <-- 4. 新增：(可选但推荐) 检查图像和掩码数量是否匹配
+                    if len(images) != len(entity_masks):
+                        print(f"Warning: Image/mask count mismatch in {idir} and {mdir}. Skipping dir.")
+                        continue
+                        
                     for i in range(len(flows)-1):
                         if direction == 'into_future':
+                            # flow[i] 是 images[i] -> images[i+1] 的光流
+                            # 参考帧是 images[i]
+                            
+                            
                             self.image_list += [ [images[i], images[i+1]] ]
                             self.flow_list += [ flows[i] ]
+                            self.entity_mask_list += [ entity_masks[i] ] # <-- 5. 新增：添加参考帧 (i) 的 mask
+                            
+                            
                         elif direction == 'into_past':
+                            # flow[i+1] 是 images[i+1] -> images[i] 的光流
+                            # 参考帧是 images[i+1]
+                            
+                            
                             self.image_list += [ [images[i+1], images[i]] ]
                             self.flow_list += [ flows[i+1] ]
+                            self.entity_mask_list += [ entity_masks[i+1] ] # <-- 6. 新增：添加参考帧 (i+1) 的 mask
+                            
 
 import pickle
 class LayeredFlow(data.Dataset):

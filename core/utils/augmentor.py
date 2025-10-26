@@ -71,7 +71,7 @@ class FlowAugmentor:
 
         return img1, img2
 
-    def spatial_transform(self, img1, img2, flow):
+    def spatial_transform(self, img1, img2, flow,entity_mask):
         # randomly sample scale
         ht, wd = img1.shape[:2]
         min_scale = np.maximum(
@@ -92,17 +92,20 @@ class FlowAugmentor:
             img1 = cv2.resize(img1, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             img2 = cv2.resize(img2, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             flow = cv2.resize(flow, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
+            entity_mask = cv2.resize(entity_mask, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_NEAREST)
             flow = flow * [scale_x, scale_y]
 
         if self.do_flip:
             if np.random.rand() < self.h_flip_prob: # h-flip
-                img1 = img1[:, ::-1]
+                img1 = img1[:, ::-1] 
                 img2 = img2[:, ::-1]
+                entity_mask = entity_mask[:, ::-1]
                 flow = flow[:, ::-1] * [-1.0, 1.0]
 
             if np.random.rand() < self.v_flip_prob: # v-flip
                 img1 = img1[::-1, :]
                 img2 = img2[::-1, :]
+                entity_mask = entity_mask[::-1, :]
                 flow = flow[::-1, :] * [1.0, -1.0]
 
         if img1.shape[0] == self.crop_size[0]:
@@ -116,13 +119,15 @@ class FlowAugmentor:
         
         img1 = img1[y0:y0+self.crop_size[0], x0:x0+self.crop_size[1]]
         img2 = img2[y0:y0+self.crop_size[0], x0:x0+self.crop_size[1]]
+        entity_mask = entity_mask[y0:y0+self.crop_size[0], x0:x0+self.crop_size[1]]
         flow = flow[y0:y0+self.crop_size[0], x0:x0+self.crop_size[1]]
 
-        return img1, img2, flow
+        return img1, img2, flow,entity_mask
 
-    def __call__(self, img1, img2, flow):
+    def __call__(self, img1, img2, flow,entity_mask):   
         img1, img2 = self.color_transform(img1, img2)
         img1, img2 = self.eraser_transform(img1, img2)
+        assert self.pwc_aug==False, "pwc_aug is not supported yet"
         if self.pwc_aug:
             th, tw = self.crop_size
             schedule = [0.5, 1.]  # initial coeff, final_coeff, half life
@@ -140,13 +145,13 @@ class FlowAugmentor:
             img2 = augmented[1]
 
         else:
-            img1, img2, flow = self.spatial_transform(img1, img2, flow)
+            img1, img2, flow,entity_mask = self.spatial_transform(img1, img2, flow,entity_mask)
 
         img1 = np.ascontiguousarray(img1)
         img2 = np.ascontiguousarray(img2)
         flow = np.ascontiguousarray(flow)
-
-        return img1, img2, flow
+        entity_mask = np.ascontiguousarray(entity_mask)
+        return img1, img2, flow,entity_mask
 
 class SparseFlowAugmentor:
     def __init__(self, crop_size, min_scale=-0.2, max_scale=0.5, do_flip=False):
@@ -221,7 +226,7 @@ class SparseFlowAugmentor:
 
         return flow_img, valid_img
 
-    def spatial_transform(self, img1, img2, flow, valid):
+    def spatial_transform(self, img1, img2, flow, valid,entity_mask):
         pad_t = 0
         pad_b = 0
         pad_l = 0
@@ -235,6 +240,7 @@ class SparseFlowAugmentor:
             img2 = np.pad(img2, ((pad_t, pad_b), (pad_l, pad_r), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
             flow = np.pad(flow, ((pad_t, pad_b), (pad_l, pad_r), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
             valid = np.pad(valid, ((pad_t, pad_b), (pad_l, pad_r)), 'constant', constant_values=((0, 0), (0, 0)))
+            entity_mask = np.pad(entity_mask, ((pad_t, pad_b), (pad_l, pad_r)), 'constant', constant_values=((-1, -1)))
         # randomly sample scale
 
         ht, wd = img1.shape[:2]
@@ -251,14 +257,14 @@ class SparseFlowAugmentor:
             img1 = cv2.resize(img1, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             img2 = cv2.resize(img2, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             flow, valid = self.resize_sparse_flow_map(flow, valid, fx=scale_x, fy=scale_y)
-
+            entity_mask = cv2.resize(entity_mask, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_NEAREST)
         if self.do_flip:
             if np.random.rand() < 0.5: # h-flip
                 img1 = img1[:, ::-1]
                 img2 = img2[:, ::-1]
                 flow = flow[:, ::-1] * [-1.0, 1.0]
                 valid = valid[:, ::-1]
-
+                entity_mask = entity_mask[:, ::-1]
         margin_y = 20
         margin_x = 50
 
@@ -272,16 +278,18 @@ class SparseFlowAugmentor:
         img2 = img2[y0:y0+self.crop_size[0], x0:x0+self.crop_size[1]]
         flow = flow[y0:y0+self.crop_size[0], x0:x0+self.crop_size[1]]
         valid = valid[y0:y0+self.crop_size[0], x0:x0+self.crop_size[1]]
-        return img1, img2, flow, valid
+        entity_mask = entity_mask[y0:y0+self.crop_size[0], x0:x0+self.crop_size[1]]
+        return img1, img2, flow, valid,entity_mask
 
 
-    def __call__(self, img1, img2, flow, valid):
+    def __call__(self, img1, img2, flow, valid,entity_mask):
         img1, img2 = self.color_transform(img1, img2)
         img1, img2 = self.eraser_transform(img1, img2)
 
-        img1, img2, flow, valid = self.spatial_transform(img1, img2, flow, valid)
+        img1, img2, flow, valid,entity_mask = self.spatial_transform(img1, img2, flow, valid,entity_mask)
         img1 = np.ascontiguousarray(img1)
         img2 = np.ascontiguousarray(img2)
         flow = np.ascontiguousarray(flow)
         valid = np.ascontiguousarray(valid)
-        return img1, img2, flow, valid
+        entity_mask = np.ascontiguousarray(entity_mask)
+        return img1, img2, flow, valid,entity_mask

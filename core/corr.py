@@ -5,7 +5,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utils.utils import coords_grid, bilinear_sampler
+from utils.utils import coords_grid, bilinear_sampler, warp_mask_to_mask2_hw,forward_flow_to_backward,sample_correlation_from_masks_with_neighborhood_fallback
 
 try:
     import alt_cuda_corr
@@ -81,34 +81,56 @@ class CorrBlock:
             corr = corr.reshape(batch*h1*w1, dim, h2, w2)
             fmap2 = F.interpolate(fmap2, scale_factor=0.5, mode='bilinear', align_corners=False)
             self.corr_pyramid.append(corr) # [B*H1/8*w1/8, 1, H1/8, W1/8]
-
-    def __call__(self, coords, dilation=None):
+    def __call__(self, mask1, flow_forward, dilation=None):
         r = self.radius
-        coords = coords.permute(0, 2, 3, 1)
-        batch, h1, w1, _ = coords.shape
 
-        if dilation is None:
-            dilation = torch.ones(batch, 1, h1, w1, device=coords.device)
+        batch, _, H, W = mask1.shape
+        
+        
 
         # print(dilation.max(), dilation.mean(), dilation.min())
         out_pyramid = []
         for i in range(self.num_levels):
             corr = self.corr_pyramid[i]
-            device = coords.device
-            dx = torch.linspace(-r, r, 2*r+1, device=device)
-            dy = torch.linspace(-r, r, 2*r+1, device=device)
-            delta = torch.stack(torch.meshgrid(dy, dx), axis=-1) # [2*r+1, 2*r+1, 2]
-            delta_lvl = delta.view(1, 2*r+1, 2*r+1, 2) # [1, 2*r+1, 2*r+1, 2]
-            delta_lvl = delta_lvl * dilation.view(batch * h1 * w1, 1, 1, 1) # [B*H1/8*w1/8, 2*r+1, 2*r+1 2]
-            centroid_lvl = coords.reshape(batch*h1*w1, 1, 1, 2) / 2**i
-            coords_lvl = centroid_lvl + delta_lvl
-            corr = bilinear_sampler(corr, coords_lvl)
-            corr = corr.view(batch, h1, w1, -1) 
+          
+            
+            mask2_hw=warp_mask_to_mask2_hw(mask1, forward_flow_to_backward(flow_forward),scale=1/(2**i)).detach()
+            print(corr.shape, mask1.shape, mask2_hw.shape, flow_forward.shape)
+            corr=sample_correlation_from_masks_with_neighborhood_fallback(corr.detach(), mask1, mask2_hw, flow_forward, (2*r+1)**2, r)
+            
+            corr = (corr.view(batch, H, W, -1)).requires_grad_(True)
             out_pyramid.append(corr)
 
         out = torch.cat(out_pyramid, dim=-1)
         out = out.permute(0, 3, 1, 2).contiguous().float()  
         return out
+    # def __call__(self, coords, dilation=None):
+    #     r = self.radius
+    #     coords = coords.permute(0, 2, 3, 1)
+    #     batch, h1, w1, _ = coords.shape
+
+    #     if dilation is None:
+    #         dilation = torch.ones(batch, 1, h1, w1, device=coords.device)
+
+    #     # print(dilation.max(), dilation.mean(), dilation.min())
+    #     out_pyramid = []
+    #     for i in range(self.num_levels):
+    #         corr = self.corr_pyramid[i]
+    #         device = coords.device
+    #         dx = torch.linspace(-r, r, 2*r+1, device=device)
+    #         dy = torch.linspace(-r, r, 2*r+1, device=device)
+    #         delta = torch.stack(torch.meshgrid(dy, dx), axis=-1) # [2*r+1, 2*r+1, 2]
+    #         delta_lvl = delta.view(1, 2*r+1, 2*r+1, 2) # [1, 2*r+1, 2*r+1, 2]
+    #         delta_lvl = delta_lvl * dilation.view(batch * h1 * w1, 1, 1, 1) # [B*H1/8*w1/8, 2*r+1, 2*r+1 2]
+    #         centroid_lvl = coords.reshape(batch*h1*w1, 1, 1, 2) / 2**i
+    #         coords_lvl = centroid_lvl + delta_lvl
+    #         corr = bilinear_sampler(corr, coords_lvl)
+    #         corr = corr.view(batch, h1, w1, -1) 
+    #         out_pyramid.append(corr)
+
+    #     out = torch.cat(out_pyramid, dim=-1)
+    #     out = out.permute(0, 3, 1, 2).contiguous().float()  
+    #     return out
 
     @staticmethod
     def corr(fmap1, fmap2, num_head):

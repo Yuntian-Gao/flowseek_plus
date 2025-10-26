@@ -11,7 +11,7 @@ from depth_anything_v2.dpt import DepthAnythingV2
 
 from update import BasicUpdateBlock
 from corr import CorrBlock
-from utils.utils import coords_grid, InputPadder
+from utils.utils import coords_grid, InputPadder, assign_uniqueId
 from extractor import ResNetFPN
 from layer import conv1x1, conv3x3
 
@@ -145,9 +145,10 @@ class FlowSeek(
         return up_flow.reshape(N, 2, 8*H, 8*W), up_info.reshape(N, C, 8*H, 8*W)
 
 
-    def forward(self, image1, image2, iters=None, flow_gt=None, test_mode=False, demo=False):
+    def forward(self, image1, image2,mask, iters=None, flow_gt=None, test_mode=False, demo=False):
         """ Estimate optical flow between pair of frames """
-        N, _, H, W = image1.shape
+        N, _, H, W = image1.shape #H=368, W=496
+      
         if iters is None:
             iters = self.args.iters
         if flow_gt is None:
@@ -155,7 +156,9 @@ class FlowSeek(
 
         image1_res = F.interpolate(image1, (518, 518), mode="bilinear", align_corners = False) / 255. 
         image2_res = F.interpolate(image2, (518, 518), mode="bilinear", align_corners = False) / 255.
-
+        mask = F.interpolate(mask.unsqueeze(1), (518, 518), mode="nearest")
+        
+        
         mean = torch.from_numpy(np.array([0.485, 0.456, 0.406])).unsqueeze(0).unsqueeze(2).unsqueeze(2).cuda()
         std = torch.from_numpy(np.array([0.229, 0.224, 0.225])).unsqueeze(0).unsqueeze(2).unsqueeze(2).cuda()
         image1_res = image1_res / mean - std # should be (image1_res - mean) / std. Models were trained with image1_res / mean - std, switching to the correct normalization alters EPE on the second digit 
@@ -180,10 +183,11 @@ class FlowSeek(
 
         # padding
         padder = InputPadder(image1.shape)
-        image1, image2 = padder.pad(image1, image2)
+        image1, image2, mask = padder.pad(image1, image2, mask)
         bases1 = padder.pad(bases1)
         
         N, _, H, W = image1.shape
+        
         dilation = torch.ones(N, 1, H//8, W//8, device=image1.device)
         
         # run the context network
@@ -217,17 +221,22 @@ class FlowSeek(
             # run the feature network
             fmap1_8x = self.fnet(image1)
             fmap2_8x = self.fnet(image2)
-
+            #下采样mask
+            mask_8x = F.interpolate(mask, (H//8, W//8), mode="nearest").squeeze(1)  
+            mask_8x = assign_uniqueId(mask_8x).unsqueeze(1).detach() #(N,1,H//8,W//8)
+            
             fmap1_8x = torch.cat((fmap1_8x,mono1), 1)
             fmap2_8x = torch.cat((fmap2_8x,mono2), 1)
 
             corr_fn = CorrBlock(fmap1_8x, fmap2_8x, self.args)
-
+            
         for itr in range(iters):
-            N, _, H, W = flow_8x.shape
+            N, _, H, W = flow_8x.shape  
             flow_8x = flow_8x.detach()
-            coords2 = (coords_grid(N, H, W, device=image1.device) + flow_8x).detach() #光流＋网格坐标=新的坐标
-            corr = corr_fn(coords2, dilation=dilation)
+            
+            # coords2 = (coords_grid(N, H, W, device=image1.device) + flow_8x).detach() #光流＋网格坐标=新的坐标
+            
+            corr = corr_fn(mask_8x, flow_8x,dilation=dilation)
             net = self.update_block(net, context, corr, flow_8x)
             flow_update = self.flow_head(net)
             weight_update = .25 * self.upsample_weight(net)
