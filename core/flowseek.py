@@ -31,6 +31,7 @@ class FlowSeek(
         self.args.corr_levels = 4
         self.args.corr_radius = args.radius
         self.args.corr_channel = args.corr_levels * (args.radius * 2 + 1) ** 2
+        self.args.fsPP = args.fsPP
         self.cnet = ResNetFPN(args, input_dim=6, output_dim=2 * self.args.dim, norm_layer=nn.BatchNorm2d, init_weight=True)
 
         self.da_model_configs = {
@@ -233,10 +234,13 @@ class FlowSeek(
         for itr in range(iters):
             N, _, H, W = flow_8x.shape  
             flow_8x = flow_8x.detach()
+            if self.args.fsPP==1:
+                corr = corr_fn.fsPP_call(mask_8x, flow_8x, dilation=dilation)
+            else:
+                coords2 = (coords_grid(N, H, W, device=image1.device) + flow_8x).detach() #光流＋网格坐标=新的坐标
+                corr = corr_fn(coords2, dilation=dilation)
             
-            # coords2 = (coords_grid(N, H, W, device=image1.device) + flow_8x).detach() #光流＋网格坐标=新的坐标
-            
-            corr = corr_fn(mask_8x, flow_8x,dilation=dilation)
+           
             net = self.update_block(net, context, corr, flow_8x)
             flow_update = self.flow_head(net)
             weight_update = .25 * self.upsample_weight(net)

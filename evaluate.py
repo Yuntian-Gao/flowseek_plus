@@ -22,17 +22,19 @@ from core.flowseek import *
 from tqdm import tqdm
 from core.utils.utils import resize_data, load_ckpt
 
-def forward_flow(args, model, image1, image2):
-    output = model(image1, image2, iters=args.iters, test_mode=True)
+def forward_flow(args, model, image1, image2, entity_mask):
+    output = model(image1, image2, entity_mask, iters=args.iters, test_mode=True)
     flow_final = output['flow'][-1]
     info_final = output['info'][-1]
     return flow_final, info_final
 
-def calc_flow(args, model, image1, image2):
+def calc_flow(args, model, image1, image2, entity_mask):
     img1 = F.interpolate(image1, scale_factor=2 ** args.scale, mode='bilinear', align_corners=False)
     img2 = F.interpolate(image2, scale_factor=2 ** args.scale, mode='bilinear', align_corners=False)
+    entity_mask = F.interpolate(entity_mask.unsqueeze(1), scale_factor=2 ** args.scale, mode='nearest').squeeze(1)
+    
     H, W = img1.shape[2:]
-    flow, info = forward_flow(args, model, img1, img2)
+    flow, info = forward_flow(args, model, img1, img2,entity_mask)
     flow_down = F.interpolate(flow, scale_factor=0.5 ** args.scale, mode='bilinear', align_corners=False) * (0.5 ** args.scale)
     info_down = F.interpolate(info, scale_factor=0.5 ** args.scale, mode='area')
     return flow_down, info_down
@@ -49,13 +51,14 @@ def validate_sintel(args, model):
         px3_list = np.array([], dtype=np.float32)
         px5_list = np.array([], dtype=np.float32)
         for i_batch, data_blob in enumerate(tqdm(val_loader)):
-            image1, image2, flow_gt, valid = [x.cuda(non_blocking=True) for x in data_blob]
-            flow, info = calc_flow(args, model, image1, image2)
+            image1, image2, flow_gt, valid, entity_mask = [x.cuda(non_blocking=True) for x in data_blob]
+            flow, info = calc_flow(args, model, image1, image2,entity_mask)
             epe = torch.sum((flow - flow_gt)**2, dim=1).sqrt()
             px1 = (epe < 1.0).float().mean(dim=[1, 2]).cpu().numpy()
             px3 = (epe < 3.0).float().mean(dim=[1, 2]).cpu().numpy()
             px5 = (epe < 5.0).float().mean(dim=[1, 2]).cpu().numpy()
             epe = epe.mean(dim=[1, 2]).cpu().numpy()
+            
             epe_list = np.append(epe_list, epe)
             px1_list = np.append(px1_list, px1)
             px3_list = np.append(px3_list, px3)
@@ -78,8 +81,9 @@ def validate_kitti(args, model):
     num_valid_pixels = 0
     out_valid_pixels = 0
     for i_batch, data_blob in enumerate(tqdm(val_loader)):
-        image1, image2, flow_gt, valid_gt = [x.cuda(non_blocking=True) for x in data_blob]
-        flow, info = calc_flow(args, model, image1, image2)
+        image1, image2, flow_gt, valid_gt, entity_mask = [x.cuda(non_blocking=True) for x in data_blob]
+       
+        flow, info = calc_flow(args, model, image1, image2,entity_mask)
         epe = torch.sum((flow - flow_gt)**2, dim=1).sqrt()
         mag = torch.sum(flow_gt**2, dim=1).sqrt()
         val = valid_gt >= 0.5
@@ -218,6 +222,7 @@ def main():
     parser.add_argument('--model', help='checkpoint path', type=str)
     parser.add_argument('--scale', help='input scale', type=int, default=0)
     parser.add_argument('--dataset', help='dataset type', type=str, required=True)
+    parser.add_argument('--fsPP', help='enable fsPP', type=int, default=1)
     args = parse_args(parser)
     eval(args)
 

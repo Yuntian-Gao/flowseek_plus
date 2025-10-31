@@ -157,9 +157,11 @@ class MpiSintel(FlowDataset):
 
         for scene in os.listdir(image_root):
             image_list = sorted(glob(osp.join(image_root, scene, '*.png')))
+            entity_mask_list = sorted(glob(osp.join(image_root, scene,  '*.npy')))
             for i in range(len(image_list)-1):
                 self.image_list += [ [image_list[i], image_list[i+1]] ]
                 self.extra_info += [ (scene, i) ] # scene and frame_id
+                self.entity_mask_list += [ entity_mask_list[i] ]
 
             if split != 'test':
                 self.flow_list += sorted(glob(osp.join(flow_root, scene, '*.flo')))
@@ -315,12 +317,12 @@ class KITTI(FlowDataset):
         root = osp.join(root, split)
         images1 = sorted(glob(osp.join(root, 'image_2/*_10.png')))
         images2 = sorted(glob(osp.join(root, 'image_2/*_11.png')))
-
-        for img1, img2 in zip(images1, images2):
+        entity_masks = sorted(glob(osp.join(root, 'mask/*.npy')))
+        for img1, img2, entity_mask in zip(images1, images2, entity_masks):
             frame_id = img1.split('/')[-1]
             self.extra_info += [ [frame_id] ]
             self.image_list += [ [img1, img2] ]
-
+            self.entity_mask_list += [ entity_mask ] 
         if split == 'training':
             self.flow_list = sorted(glob(osp.join(root, 'flow_occ/*_10.png')))
 

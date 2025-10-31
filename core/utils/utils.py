@@ -6,6 +6,227 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from scipy import interpolate
+import torch
+import torch.nn.functional as F
+
+import torch
+import torch.nn.functional as F
+
+def sample_correlation_from_masks_with_neighborhood_fallback_vectorized(
+    corr: torch.Tensor, 
+    mask1_HW: torch.Tensor, 
+    mask2_hw: torch.Tensor, 
+    flow1_forward_HW: torch.Tensor, 
+    m: int,
+    r: float
+) -> torch.Tensor:
+    """
+    根据 mask1 (高分辨率) 和 mask2 (低分辨率) 采样代价体 corr。(向量化版本)
+    
+    如果ID匹配失败（匹配数 < m），则在 flow1_forward (高分辨率) 预测的、并缩放至
+    低分辨率空间的邻域 (半径 r) 内进行 *规则网格* 采样。
+    (此版本要求 m 必须等于 (2*r+1)^2)
+
+    Args:
+        corr (torch.Tensor): 代价体, 形状 [NHW, 1, hw]
+        mask1_HW (torch.Tensor): 图像1的掩码 (高分辨率), 形状 [N, 1, H, W]
+        mask2_hw (torch.Tensor): 图像2的掩码 (低分辨率), 形状 [N, 1, h, w]
+        flow1_forward_HW (torch.Tensor): *正向* 光流 (1 -> 2), 
+                                      形状 [N, 2, H, W],
+                                      光流值(dx, dy)定义在 (H, W) 坐标系中。
+                                      通道 0: dx, 通道 1: dy
+        m (int): 每个点要采样的数量。必须满足 m = (2*r+1)^2
+        r (float): 邻域回退采样的半径 (在 (h, w) 空间中定义)。
+                   (2*r+1) 必须是一个整数。
+
+    Returns:
+        torch.Tensor: 稀疏化的代价体, 形状 [NHW, 1, m]
+    """
+    
+    # --- 1. 形状提取 ---
+    N, _, H, W = mask1_HW.shape
+    _, _, h, w = mask2_hw.shape
+    
+    HW = H * W
+    hw = h * w
+    NHW = N * H * W
+    device = corr.device
+    dtype = corr.dtype
+
+    # --- 2. 形状验证 (修正了原始代码中的hw/HW混淆) ---
+    corr = corr.view(NHW, 1, hw) 
+    
+    # corr_squeezed: [NHW, hw]
+    corr_squeezed = corr.squeeze(1) 
+
+    # --- 3. 尺度因子 ---
+    scale_h = h / H
+    scale_w = w / W
+
+    # --- 4. 掩码准备 (ID匹配) ---
+    
+    
+    # mask1_flat: [NHW]
+    mask1_flat = mask1_HW.view(NHW)
+    # mask1_rep: [NHW, 1] (每个源像素的ID)
+    mask1_rep = mask1_flat.view(NHW, 1) 
+    
+    # mask2_rep: [NHW, hw] (广播hw个目标像素的ID，匹配NHW个源像素)
+    mask2_rep = mask2_hw.view(N, hw).repeat_interleave(HW, dim=0)
+
+    # valid_j_mask: [NHW, hw] (bool)
+    # 比较 k-th 源像素ID 和 所有 hw 个目标像素ID
+    valid_j_mask = (mask2_rep == mask1_rep) 
+    
+    # --- 5. 找出需要回退的像素 (Fallback) vs ID匹配的像素 (ID-Match) ---
+    
+    # num_matches_per_k: [NHW]
+    num_matches_per_k = valid_j_mask.sum(dim=1)
+    
+    # fallback_mask_k: [NHW] (bool)
+    fallback_mask_k = (num_matches_per_k < m)
+    
+    # id_match_mask_k: [NHW] (bool)
+    id_match_mask_k = ~fallback_mask_k
+
+    # fallback_indices_k: [K2] (K2是需要回退的像素总数)
+    fallback_indices_k = torch.where(fallback_mask_k)[0]
+    
+    # id_match_indices_k: [K1] (K1是ID匹配的像素总数)
+    id_match_indices_k = torch.where(id_match_mask_k)[0]
+
+    K1 = id_match_indices_k.numel()
+    K2 = fallback_indices_k.numel()
+
+    # --- 6. 初始化输出 ---
+    corr_sparse = torch.full((NHW, 1, m), torch.nan, device=device, dtype=dtype)
+
+    # =========================================================================
+    # 7. 批处理：ID 匹配 (K1 个点)
+    # =========================================================================
+    if K1 > 0:
+        # 7.1. 只选择需要ID匹配的行
+        # valid_j_mask_k1: [K1, hw]
+        valid_j_mask_k1 = valid_j_mask[id_match_indices_k]
+        
+        # corr_k1: [K1, hw]
+        corr_k1 = corr_squeezed[id_match_indices_k]
+
+        # 7.2. 使用 "topk + 随机数" 技巧进行批处理采样
+        
+        # rand_vals: [K1, hw] (在 [0, 1] 之间)
+        rand_vals = torch.rand(K1, hw, device=device, dtype=dtype)
+        
+        # 只保留 ID 匹配的位置的随机数，其他设为 -1
+        rand_vals.masked_fill_(~valid_j_mask_k1, -1.0)
+        
+        # 7.3. 选取 top m 个随机数对应的索引
+        # _, sampled_j_indices_k1: [K1, m]
+        _, sampled_j_indices_k1 = torch.topk(rand_vals, k=m, dim=1)
+        
+        # 7.4. 使用 gather 从代价体中提取采样的值
+        # sampled_corrs_k1: [K1, m]
+        sampled_corrs_k1 = torch.gather(corr_k1, 1, sampled_j_indices_k1)
+        
+        # 7.5. 填入
+        corr_sparse[id_match_indices_k] = sampled_corrs_k1.unsqueeze(1)
+
+
+    # =========================================================================
+    # 8. 批处理：邻域回退 (K2 个点)
+    # =========================================================================
+    if K2 > 0:
+        # 8.1. 获取 K2 个点的 (n, h_k, w_k) 坐标 (在 (H, W) 空间)
+        n_k2 = fallback_indices_k // HW
+        k_local_k2 = fallback_indices_k % HW
+        h_k2 = k_local_k2 // W
+        w_k2 = k_local_k2 % W
+        
+        # 8.2. 获取 (H, W) 空间的正向光流 (dx, dy)
+        # flow1_forward_HW: [N, 2, H, W]
+        # 使用高级索引获取 [K2, 2]
+        flow_k2 = flow1_forward_HW[n_k2, :, h_k2, w_k2]
+        dx_k2 = flow_k2[:, 0] # [K2]
+        dy_k2 = flow_k2[:, 1] # [K2]
+
+        # 8.3. 计算 (H, W) 空间中的目标坐标 (w_target_HW, h_target_HW)
+        # w_k2 和 h_k2 需要转为 float
+        w_target_HW_k2 = w_k2.to(dtype) + dx_k2
+        h_target_HW_k2 = h_k2.to(dtype) + dy_k2
+        
+        # 8.4. 缩放目标坐标到 (h, w) 空间 (h_t, w_t)
+        # w_t_k2, h_t_k2: [K2]
+        w_t_k2 = w_target_HW_k2 * scale_w
+        h_t_k2 = h_target_HW_k2 * scale_h
+
+        # 8.5. 生成 m 个邻域采样点 (使用 grid_sample)
+        
+        # ==================== (!! 已修改 !!) ====================
+        # 8.5.1. 生成 (2r+1)x(2r+1) 的规则网格偏移量
+        side_length_float = 2 * r + 1
+        side_length = int(round(side_length_float))
+        
+        # 验证 m 和 r 是否匹配
+        if side_length**2 != m:
+            raise ValueError(
+                f"Fallback sampling m ({m}) must equal (2*r+1)^2 "
+                f"({side_length**2} for r={r})."
+            )
+     
+            
+        # E.g., r=1, side_length=3, offsets_1d = [-1, 0, 1]
+        # E.g., r=2, side_length=5, offsets_1d = [-2, -1, 0, 1, 2]
+        offsets_1d = torch.linspace(-r, r, steps=side_length, device=device, dtype=dtype)
+        
+        # grid_h_offsets, grid_w_offsets: [side_length, side_length]
+        grid_h_offsets, grid_w_offsets = torch.meshgrid(offsets_1d, offsets_1d, indexing='ij')
+        
+        # offsets_h_m, offsets_w_m: [m]
+        offsets_h_m = grid_h_offsets.reshape(m)
+        offsets_w_m = grid_w_offsets.reshape(m)
+
+        # 8.5.2. 计算采样坐标 (w_s, h_s)
+        # w_t_k2: [K2] -> [K2, 1]
+        # offsets_w_m: [m] -> [1, m]
+        # w_s_k2m, h_s_k2m: [K2, m] (应用广播)
+        w_s_k2m = w_t_k2.view(K2, 1) + offsets_w_m.view(1, m)
+        h_s_k2m = h_t_k2.view(K2, 1) + offsets_h_m.view(1, m)
+        # ================== (!! 修改结束 !!) ==================
+
+        # 8.5.3. 归一化坐标以用于 grid_sample (从 [0, W-1] 映射到 [-1, 1])
+        # grid_sample 需要 (x, y) 顺序，即 (w, h)
+        grid_w = (w_s_k2m / (w - 1)) * 2 - 1
+        grid_h = (h_s_k2m / (h - 1)) * 2 - 1
+        
+        # grid: [K2, 1, m, 2] (grid_sample 需要 N, H_out, W_out, 2)
+        # 这里我们的 N=K2, H_out=1, W_out=m
+        grid = torch.stack((grid_w, grid_h), dim=-1).view(K2, 1, m, 2)
+        
+        # 8.5.4. 准备 grid_sample 的输入 (代价体)
+        # corr_squeezed: [NHW, hw]
+        # corr_k2: [K2, hw]
+        corr_k2 = corr_squeezed[fallback_indices_k]
+        
+        # corr_k2_hw_view: [K2, 1, h, w] (N, C, H_in, W_in)
+        corr_k2_hw_view = corr_k2.view(K2, 1, h, w)
+        
+        # 8.5.5. 执行采样
+        # sampled_corrs_k2: [K2, 1, 1, m]
+        sampled_corrs_k2 = F.grid_sample(
+            corr_k2_hw_view, 
+            grid, 
+            mode='bilinear', # 使用双线性插值
+            padding_mode='border', # 'border' 会 clamp 到边界
+            align_corners=True # 坐标 [0, W-1] 对应 [-1, 1]
+        )
+        
+        # 8.5.6. 整理形状并填入
+        # .view(K2, 1, m)
+        corr_sparse[fallback_indices_k] = sampled_corrs_k2.view(K2, 1, m)
+
+    # -------------------------------------------------------------------------
+   
+    return corr_sparse
 def assign_uniqueId(segmentation: torch.Tensor) -> torch.Tensor:
     """
     将单通道分割图映射为唯一的实体 ID，跨样本保证 ID 连续。
@@ -47,6 +268,9 @@ def assign_uniqueId(segmentation: torch.Tensor) -> torch.Tensor:
     entity_ids = entity_ids_flat.view(N,H, W)
 
     return entity_ids
+import torch
+import torch.nn.functional as F
+
 def forward_flow_to_backward(flow_forward: torch.Tensor) -> torch.Tensor:
     """
     从前向光流 (1 -> 2) 近似构造反向光流 (2 -> 1)。
@@ -58,8 +282,9 @@ def forward_flow_to_backward(flow_forward: torch.Tensor) -> torch.Tensor:
        到 p2 周围的四个整数像素上。
     4. 我们使用两个张量：一个累加加权后的光流值 (flow_backward_sum)，
        一个累加权重 (weights_sum)。
-    5. 最终的反向光流 = flow_backward_sum / (weights_sum + epsilon)，
-       这正确地处理了冲突（加权平均）和孔洞（保持为0）。
+    5. 最终的反向光流 = flow_backward_sum / (weights_sum + epsilon)。
+    
+    (修改版): 孔洞 (weights_sum == 0) 将被填充为 -1。
     """
     N, _, H, W = flow_forward.shape
     device = flow_forward.device
@@ -85,7 +310,6 @@ def forward_flow_to_backward(flow_forward: torch.Tensor) -> torch.Tensor:
     v_dx = -dx  # [N, H, W]
     v_dy = -dy  # [N, H, W]
     
-    # 将 v_dx 和 v_dy 堆叠，以便后续处理
     # [N, 2, H, W]
     v_flow = torch.stack([v_dx, v_dy], dim=1)
 
@@ -100,14 +324,12 @@ def forward_flow_to_backward(flow_forward: torch.Tensor) -> torch.Tensor:
     y2_ceil = y2_floor + 1
 
     # 6. 计算双线性散布权重
-    # (与 grid_sample 的采样权重相反)
     w_tl = (x2_ceil.float() - x2) * (y2_ceil.float() - y2) # top-left
     w_tr = (x2 - x2_floor.float()) * (y2_ceil.float() - y2) # top-right
     w_bl = (x2_ceil.float() - x2) * (y2 - y2_floor.float()) # bottom-left
     w_br = (x2 - x2_floor.float()) * (y2 - y2_floor.float()) # bottom-right
 
     # 7. 定义一个辅助函数来执行 scatter_add_
-    # 这个函数将把 (N, H, W) 的源值散布到 (N, C, H, W) 的目标画布上
     def splat(y_coord, x_coord, weight, v_flow_to_splat):
         """
         参数:
@@ -134,11 +356,8 @@ def forward_flow_to_backward(flow_forward: torch.Tensor) -> torch.Tensor:
         # --- 执行 scatter_add_ ---
         # [N, 1, H*W]
         flat_idx_weights = flat_idx.unsqueeze(1).view(N, 1, -1)
-        
         # [N, 2, H*W]
-        # vvvvvvvvvvvvvv 这是修正行 vvvvvvvvvvvvvvv
         flat_idx_flow = flat_idx.unsqueeze(1).expand(-1, 2, -1, -1).view(N, 2, -1)
-        # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
         
         weights_sum.view(N, 1, -1).scatter_add_(
             dim=2, 
@@ -157,9 +376,33 @@ def forward_flow_to_backward(flow_forward: torch.Tensor) -> torch.Tensor:
     splat(y2_ceil,  x2_floor, w_bl, v_flow) # Bottom-Left
     splat(y2_ceil,  x2_ceil,  w_br, v_flow) # Bottom-Right
 
-    # 9. 归一化：除以总权重
-    # 添加一个小的 epsilon 以避免除以零（处理孔洞）
-    flow_backward = flow_backward_sum / (weights_sum + 1e-8)
+    # -----------------------------------------------------------------
+    # 9. 归一化，并将孔洞填充为 -1
+    # -----------------------------------------------------------------
+    
+    epsilon = 1e-8
+    
+    # (A) 识别孔洞
+    # 孔洞是没有任何像素散布到的地方，即总权重为 0
+    # hole_mask 的形状是 [N, 1, H, W]
+    hole_mask = (weights_sum < epsilon)
+
+    # (B) 归一化
+    # (weights_sum + epsilon) 确保分母不为0
+    # 在孔洞处，结果为 0 / epsilon = 0
+    # 在非孔洞处，结果为 flow_sum / weights_sum
+    flow_backward_normalized = flow_backward_sum / (weights_sum + epsilon)
+
+    # (C) 填充孔洞
+    # torch.where 会自动广播 hole_mask (N,1,H,W) -> (N,2,H,W)
+    # 条件为 True (是孔洞) 时，填充 -1.0
+    # 条件为 False (非孔洞) 时，使用归一化的光流
+    flow_backward = torch.where(
+        hole_mask, 
+        -1.0, 
+        flow_backward_normalized
+    )
+    # -----------------------------------------------------------------
 
     return flow_backward
 def warp_mask_to_mask2_hw(
@@ -229,7 +472,7 @@ def warp_mask_to_mask2_hw(
     if H > 1:
         flow_norm_hw[..., 1] = flow_perm_hw[..., 1] * (2.0 / (H - 1)) # dy -> y_norm
 
-    # 6. 计算源网格 (Source Grid)
+    # 6. 计算源网格 (Source Grid)     
     # grid_src: [N, h, w, 2]
     # 对于 (h, w) 中的每个点，它在 [-1, 1] 源空间 (H, W) 中的对应采样位置
     grid_src = grid_dest_hw + flow_norm_hw 
@@ -340,21 +583,16 @@ def sample_correlation_from_masks_with_neighborhood_fallback(
         sampled_corrs = None
         candidate_corrs = None
         
-        if num_matches > 0:
+        if num_matches >=m:
             # --- 7.1. ID 匹配成功 ---
             candidate_corrs = corr_squeezed[k, j_local_indices]
             
-            if num_matches < m:
-                # 重复采样
-                rand_indices = torch.randint(0, num_matches, (m,), device=device)
-            else:
-                # 不重复采样
-                rand_indices = torch.randperm(num_matches, device=device)[:m]
+            rand_indices = torch.randperm(num_matches, device=device)[:m]
             
             sampled_corrs = candidate_corrs[rand_indices]
 
         else:
-            # --- 7.2. ID 匹配失败，执行邻域回退 ---
+            # --- 7.2. 执行邻域回退 ---
             
             # 7.2.1. 获取 k 的 (n, h_k, w_k) 坐标 (在 (H, W) 空间)
             n_k = k // HW
