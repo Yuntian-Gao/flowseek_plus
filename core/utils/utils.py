@@ -268,8 +268,6 @@ def assign_uniqueId(segmentation: torch.Tensor) -> torch.Tensor:
     entity_ids = entity_ids_flat.view(N,H, W)
 
     return entity_ids
-import torch
-import torch.nn.functional as F
 
 def forward_flow_to_backward(flow_forward: torch.Tensor) -> torch.Tensor:
     """
@@ -405,6 +403,73 @@ def forward_flow_to_backward(flow_forward: torch.Tensor) -> torch.Tensor:
     # -----------------------------------------------------------------
 
     return flow_backward
+def warp_mask_to_mask2_hw_v2(
+    mask1_HW: torch.Tensor,
+    flow1_backward_HW: torch.Tensor,
+    scale: float
+) -> torch.Tensor:
+    """
+    V2 (新方法): 先在 (H, W) 分辨率上扭曲，然后下采样到 (h, w)。
+
+    Args:
+        mask1_HW (torch.Tensor): 形状 [N, 1, H, W]
+        flow1_backward_HW (torch.Tensor): 形状 [N, 2, H, W]
+        scale (float): 缩放比例
+    
+    Returns:
+        torch.Tensor: 形状 [N, 1, h, w]
+    """
+    N, _, H, W = mask1_HW.shape
+    device = mask1_HW.device
+
+    # 1. 计算目标 (h, w) 维度
+    h = int(H * scale)
+    w = int(W * scale)
+    if h < 1 or w < 1:
+        raise ValueError(f"Target scale {scale} results in invalid dimensions: ({h}, {w})")
+
+    # 2. 创建 (H, W) 目标网格
+    # 这是用于在 (H, W) 分辨率上进行采样的目标网格
+    yy_HW, xx_HW = torch.meshgrid(
+        torch.linspace(-1, 1, H, device=device),
+        torch.linspace(-1, 1, W, device=device),
+        indexing='ij'
+    )
+    # grid_dest_HW: [N, H, W, 2] (x, y)
+    grid_dest_HW = torch.stack((xx_HW, yy_HW), dim=2).unsqueeze(0).repeat(N, 1, 1, 1)
+
+    # 3. 归一化 (H, W) 光流
+    flow_perm_HW = flow1_backward_HW.permute(0, 2, 3, 1) # [N, H, W, 2]
+    flow_norm_HW = torch.zeros_like(flow_perm_HW)
+    if W > 1:
+        flow_norm_HW[..., 0] = flow_perm_HW[..., 0] * (2.0 / (W - 1)) # dx -> x_norm
+    if H > 1:
+        flow_norm_HW[..., 1] = flow_perm_HW[..., 1] * (2.0 / (H - 1)) # dy -> y_norm
+    
+    # 4. 计算 (H, W) 源网格
+    # grid_src_HW: [N, H, W, 2]
+    grid_src_HW = grid_dest_HW + flow_norm_HW
+
+    # 5. 在 (H, W) 上采样 (Warp)，生成高分辨率的扭曲掩码
+    mask1_float = mask1_HW.float()
+    mask2_warped_HW = F.grid_sample(
+        mask1_float,
+        grid_src_HW,
+        mode='nearest', # ID 掩码必须用 'nearest'
+        padding_mode='border',
+        align_corners=True
+    ) # [N, 1, H, W]
+
+    # 6. 将高分辨率的扭曲掩码下采样到 (h, w)
+    # 注意: F.interpolate 的 'nearest' 模式与 F.grid_sample 的 'nearest' 
+    # 在边界处理和坐标映射上可能存在细微差别。
+    mask2_warped_hw = F.interpolate(
+        mask2_warped_HW,
+        size=(h, w),
+        mode='nearest' # 保持 ID
+    )
+    
+    return mask2_warped_hw.long()
 def warp_mask_to_mask2_hw(
     mask1_HW: torch.Tensor, 
     flow1_backward_HW: torch.Tensor, 

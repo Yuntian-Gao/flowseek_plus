@@ -26,11 +26,11 @@ done
 export CUDA_VISIBLE_DEVICES=$GPUS
 
 # echo "Validation FlowSeek_chairs (T)"
-python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_C_1.pth_20251030092742 --dataset sintel --fsPP $FS_PP
-python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_C_1.pth_20251030092742 --dataset kitti  --fsPP $FS_PP
+python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_C_1.pth_20251101124756 --dataset sintel --fsPP $FS_PP
+python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_C_1.pth_20251101124756 --dataset kitti  --fsPP $FS_PP
 echo "Validation FlowSeek_chairs (S)"
-python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_C_"$FS_PP".pth --dataset sintel --fsPP $FS_PP
-python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_C_"$FS_PP".pth --dataset kitti  --fsPP $FS_PP
+python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_C_1.pth_20251101124756 --dataset sintel --fsPP $FS_PP
+python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_C_1.pth_20251101124756 --dataset kitti  --fsPP $FS_PP
 echo "Validation FlowSeek_chairs (M)"
 python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_C_"$FS_PP".pth --dataset sintel   --fsPP $FS_PP
 python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_C_"$FS_PP".pth --dataset kitti    --fsPP $FS_PP

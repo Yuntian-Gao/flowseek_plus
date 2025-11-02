@@ -30,7 +30,7 @@ class FlowSeek(
 
         self.args.corr_levels = 4
         self.args.corr_radius = args.radius
-        self.args.corr_channel = args.corr_levels * (args.radius * 2 + 1) ** 2
+        self.args.corr_channel = (args.corr_levels+1) * (args.radius * 2 + 1) ** 2
         self.args.fsPP = args.fsPP
         self.cnet = ResNetFPN(args, input_dim=6, output_dim=2 * self.args.dim, norm_layer=nn.BatchNorm2d, init_weight=True)
 
@@ -171,7 +171,7 @@ class FlowSeek(
         im1_path1 = F.interpolate(im1_path1, (H, W), mode="bilinear", align_corners = False)
         im2_path1 = F.interpolate(im2_path1, (H, W), mode="bilinear", align_corners = False)
         bases1 = self.create_bases(F.interpolate(depth1, (H, W), mode="bilinear", align_corners = False))            
-        
+        print(bases1)
         mono1 = self.merge_head(im1_path1)
         mono2 = self.merge_head(im2_path1)
 
@@ -235,7 +235,11 @@ class FlowSeek(
             N, _, H, W = flow_8x.shape  
             flow_8x = flow_8x.detach()
             if self.args.fsPP==1:
-                corr = corr_fn.fsPP_call(mask_8x, flow_8x, dilation=dilation)
+                corr1 = corr_fn.fsPP_call(mask_8x, flow_8x, dilation=dilation)
+                coords2 = (coords_grid(N, H, W, device=image1.device) + flow_8x).detach() #光流＋网格坐标=新的坐标
+                corr2 = corr_fn(coords2, dilation=dilation)
+                corr = torch.cat((corr1, corr2), dim=1)
+
             else:
                 coords2 = (coords_grid(N, H, W, device=image1.device) + flow_8x).detach() #光流＋网格坐标=新的坐标
                 corr = corr_fn(coords2, dilation=dilation)

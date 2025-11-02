@@ -90,16 +90,16 @@ class CorrBlock:
 
         # print(dilation.max(), dilation.mean(), dilation.min())
         out_pyramid = []
-        for i in range(self.num_levels):
-            corr = self.corr_pyramid[i]
-            
-            flow_backward=forward_flow_to_backward(flow_forward)
-            mask2_hw=warp_mask_to_mask2_hw(mask1, forward_flow_to_backward(flow_forward),scale=1./(2**i)).detach()
-          
-            corr=sample_correlation_from_masks_with_neighborhood_fallback_vectorized(corr.detach(), mask1, mask2_hw, flow_forward, (2*r+1)**2, r)
-            
-            corr = (corr.view(batch, H, W, -1)).requires_grad_(True)
-            out_pyramid.append(corr)
+        
+        corr = self.corr_pyramid[0]
+        
+
+        mask2_hw=warp_mask_to_mask2_hw(mask1, forward_flow_to_backward(flow_forward),scale=1).detach()
+        
+        corr=sample_correlation_from_masks_with_neighborhood_fallback_vectorized(corr.detach(), mask1, mask2_hw, flow_forward, (2*r+1)**2, r)
+        
+        corr = (corr.view(batch, H, W, -1)).requires_grad_(True)
+        out_pyramid.append(corr)
 
         out = torch.cat(out_pyramid, dim=-1)
         out = out.permute(0, 3, 1, 2).contiguous().float()  
@@ -116,6 +116,7 @@ class CorrBlock:
         out_pyramid = []
         for i in range(self.num_levels):
             corr = self.corr_pyramid[i]
+           
             device = coords.device
             dx = torch.linspace(-r, r, 2*r+1, device=device)
             dy = torch.linspace(-r, r, 2*r+1, device=device)

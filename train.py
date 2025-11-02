@@ -79,7 +79,7 @@ def train(args, rank=0, world_size=1, use_ddp=False):
     
     total_steps = 0
     VAL_FREQ = 10000
-    LOG_FREQ = 1 # Frequency to write to text file
+    LOG_FREQ = 100 # Frequency to write to text file
     epoch = 0
     should_keep_training = True
     
@@ -126,9 +126,9 @@ def train(args, rank=0, world_size=1, use_ddp=False):
             
             total_steps += 1
     if args.fsPP:
-        PATH = '%s/%s_%d.pth' % (args.savedir, args.name, args.fsPP)+f"_{time.strftime('%Y%m%d%H%M%S')}"
+        PATH = '%s/%s_%d.pth' % (args.savedir, args.name, args.fsPP)#+f"_{time.strftime('%Y%m%d%H%M%S')}"
     else:
-        PATH = '%s/%s.pth' % (args.savedir, args.name)+f"_{time.strftime('%Y%m%d%H%M%S')}"
+        PATH = '%s/%s.pth' % (args.savedir, args.name)
     
     if rank == 0:
         torch.save(model.module.state_dict(), PATH)

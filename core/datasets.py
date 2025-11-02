@@ -486,16 +486,19 @@ class TartanAir(FlowDataset):
             elif self.split == 'val' and ('westerndesert' not in scene and 'soulcity' not in scene):
                 continue
             images = sorted(glob(osp.join(scene, 'image_left/*.png')))
+            entity_masks = sorted(glob(osp.join(scene, 'image_mask/*.npy')))
             for idx in range(len(images) - 1):
                 frame0 = str(idx).zfill(6)
                 frame1 = str(idx + 1).zfill(6)
                 self.image_list.append([images[idx], images[idx + 1]])
                 self.flow_list.append(osp.join(scene, 'flow', f"{frame0}_{frame1}_flow.npy"))
                 self.mask_list.append(osp.join(scene, 'flow', f"{frame0}_{frame1}_mask.npy"))
+                self.entity_mask_list.append(entity_masks[idx])
         if self.split == 'val':
             self.image_list = self.image_list[::100]
             self.flow_list = self.flow_list[::100]
             self.mask_list = self.mask_list[::100]
+            self.entity_mask_list = self.entity_mask_list[::100]
 
 class MegaScene(data.Dataset):
     def __init__(self,
