@@ -11,12 +11,67 @@ from depth_anything_v2.dpt import DepthAnythingV2
 
 from update import BasicUpdateBlock
 from corr import CorrBlock
-from utils.utils import coords_grid, InputPadder, assign_uniqueId
+from utils.utils import coords_grid, InputPadder, assign_uniqueId, base2flow
 from extractor import ResNetFPN
 from layer import conv1x1, conv3x3
 
 from huggingface_hub import PyTorchModelHubMixin
+from PIL import Image
+import numpy as np
+import os
+def get_voc_color_palette(num_classes=256):
+    """
+    返回 PASCAL VOC 风格的调色板（256 个类别的 RGB 颜色）。
+    输出: (num_classes, 3) 的 uint8 numpy 数组。
+    """
+    palette = np.zeros((num_classes, 3), dtype=np.uint8)
+    for i in range(num_classes):
+        r, g, b = 0, 0, 0
+        id = i
+        for j in range(8):
+            r |= ((id >> 0) & 1) << (7 - j)
+            g |= ((id >> 1) & 1) << (7 - j)
+            b |= ((id >> 2) & 1) << (7 - j)
+            id >>= 3
+        palette[i] = [r, g, b]
+    return palette
 
+def save_images_and_masks(image1, image2, mask, output_dir='output_vis', max_samples=None, num_classes=100):
+    """
+    将 batch 中的 image1, image2, mask 保存为 PNG 图像到 output_dir 文件夹。
+    mask 将被保存为彩色分割图。
+
+    参数:
+        image1, image2: Tensor, shape (N, C, H, W), 值域 [-1, 1]
+        mask: Tensor, shape (N, 1, H, W), 值为整数分割 ID (0 到 num_classes-1)
+        output_dir: 保存目录
+        max_samples: 最多保存多少样本（None 表示全部）
+        num_classes: 分割类别总数（用于生成颜色）
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    palette = get_voc_color_palette(num_classes)  # shape: (256, 3)
+
+    N = image1.size(0)
+    if max_samples is not None:
+        N = min(N, max_samples)
+    
+    for i in range(N):
+        # 反归一化 image1, image2: [-1,1] -> [0,255]
+        img1 = (image1[i].cpu().detach() + 1.0) / 2.0
+        img2 = (image2[i].cpu().detach() + 1.0) / 2.0
+        img1 = torch.clamp(img1 * 255.0, 0, 255).byte().permute(1, 2, 0).numpy()
+        img2 = torch.clamp(img2 * 255.0, 0, 255).byte().permute(1, 2, 0).numpy()
+        
+        # 处理 mask: (1, H, W) -> (H, W)
+        msk_id = mask[i, 0].cpu().detach().numpy().astype(np.uint8)  # shape (H, W)
+
+        # 使用调色板将 ID 映射为 RGB
+        msk_color = palette[msk_id]  # shape (H, W, 3)
+
+        # 保存图像
+        Image.fromarray(img1).save(os.path.join(output_dir, f'sample_{i:04d}_img1.png'))
+        Image.fromarray(img2).save(os.path.join(output_dir, f'sample_{i:04d}_img2.png'))
+        Image.fromarray(msk_color, mode='RGB').save(os.path.join(output_dir, f'sample_{i:04d}_mask_color.png'))
 class FlowSeek(
     nn.Module,
     PyTorchModelHubMixin
@@ -30,7 +85,7 @@ class FlowSeek(
 
         self.args.corr_levels = 4
         self.args.corr_radius = args.radius
-        self.args.corr_channel = (args.corr_levels+1) * (args.radius * 2 + 1) ** 2
+        self.args.corr_channel = (args.corr_levels) * (args.radius * 2 + 1) ** 2
         self.args.fsPP = args.fsPP
         self.cnet = ResNetFPN(args, input_dim=6, output_dim=2 * self.args.dim, norm_layer=nn.BatchNorm2d, init_weight=True)
 
@@ -68,7 +123,7 @@ class FlowSeek(
             # flow(2) + weight(2) + log_b(2)
             nn.Conv2d(args.dim*2, 2 * args.dim, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(2 * args.dim, 6, 3, padding=1)
+            nn.Conv2d(2 * args.dim, 12, 3, padding=1)
         )
         if args.iters > 0:
             self.fnet = ResNetFPN(args, input_dim=3, output_dim=self.output_dim, norm_layer=nn.BatchNorm2d, init_weight=True)
@@ -104,18 +159,24 @@ class FlowSeek(
         Tx = 2 * disp * Tx
         Ty = 2 * disp * Ty
         Tz = 2 * disp * Tz
-
-        R1x = torch.cat([torch.zeros_like(disp), torch.ones_like(disp)], dim=1)
+   
+        R1x = torch.cat([torch.zeros_like(disp), torch.ones_like(disp)], dim=1) #B x 2 x H x W
         R2x = torch.cat([u * v, v * v], dim=1)
         R1y = torch.cat([-torch.ones_like(disp), torch.zeros_like(disp)], dim=1)
         R2y = torch.cat([-u * u, -u * v], dim=1)
         Rz =  torch.cat([-v / aspect_ratio, u * aspect_ratio], dim=1)
 
         R1x = R1x / torch.linalg.vector_norm(R1x, dim=(1,2,3), keepdim=True)
+      
+      
         R2x = R2x / torch.linalg.vector_norm(R2x, dim=(1,2,3), keepdim=True)
+        
         R1y = R1y / torch.linalg.vector_norm(R1y, dim=(1,2,3), keepdim=True)
+      
         R2y = R2y / torch.linalg.vector_norm(R2y, dim=(1,2,3), keepdim=True)
+       
         Rz =  Rz  / torch.linalg.vector_norm(Rz,  dim=(1,2,3), keepdim=True)
+ 
         
         M = torch.cat([Tx, Ty, Tz, R1x, R2x, R1y, R2y, Rz], dim=1) # Bx(8x2)xHxW
         return M
@@ -149,7 +210,7 @@ class FlowSeek(
     def forward(self, image1, image2,mask, iters=None, flow_gt=None, test_mode=False, demo=False):
         """ Estimate optical flow between pair of frames """
         N, _, H, W = image1.shape #H=368, W=496
-      
+        mask=mask.unsqueeze(1)
         if iters is None:
             iters = self.args.iters
         if flow_gt is None:
@@ -157,7 +218,7 @@ class FlowSeek(
 
         image1_res = F.interpolate(image1, (518, 518), mode="bilinear", align_corners = False) / 255. 
         image2_res = F.interpolate(image2, (518, 518), mode="bilinear", align_corners = False) / 255.
-        mask = F.interpolate(mask.unsqueeze(1), (518, 518), mode="nearest")
+
         
         
         mean = torch.from_numpy(np.array([0.485, 0.456, 0.406])).unsqueeze(0).unsqueeze(2).unsqueeze(2).cuda()
@@ -171,7 +232,7 @@ class FlowSeek(
         im1_path1 = F.interpolate(im1_path1, (H, W), mode="bilinear", align_corners = False)
         im2_path1 = F.interpolate(im2_path1, (H, W), mode="bilinear", align_corners = False)
         bases1 = self.create_bases(F.interpolate(depth1, (H, W), mode="bilinear", align_corners = False))            
-        print(bases1)
+        
         mono1 = self.merge_head(im1_path1)
         mono2 = self.merge_head(im2_path1)
 
@@ -181,10 +242,13 @@ class FlowSeek(
         image2 = image2.contiguous()
         flow_predictions = []
         info_predictions = []
-
+        coeff_predictions = []
         # padding
         padder = InputPadder(image1.shape)
+        
         image1, image2, mask = padder.pad(image1, image2, mask)
+        
+        # save_images_and_masks(image1, image2, mask, output_dir='output_vis', max_samples=10)
         bases1 = padder.pad(bases1)
         
         N, _, H, W = image1.shape
@@ -200,7 +264,8 @@ class FlowSeek(
         
         cnet = self.init_conv(cnet)
         net, context = torch.split(cnet, [self.args.dim, self.args.dim], dim=1)
-                
+        
+       
         bnet_inputs = bases1[0]
         bnet = self.bnet(bnet_inputs)
         bnet = self.init_conv(bnet)
@@ -212,12 +277,18 @@ class FlowSeek(
         # init flow
         flow_update = self.flow_head(net)
         weight_update = .25 * self.upsample_weight(net)
-        flow_8x = flow_update[:, :2]
-        info_8x = flow_update[:, 2:]
+        
+        bases_8x = F.interpolate(bnet_inputs.detach(), (H//8, W//8), mode="bilinear", align_corners = False)
+        
+        
+        coefficient_8x = flow_update[:, :8] #Nx8xHxW
+        flow_8x = base2flow(bases_8x, coefficient_8x)
+        
+        info_8x = flow_update[:, 8:]
         flow_up, info_up = self.upsample_data(flow_8x, info_8x, weight_update)
         flow_predictions.append(flow_up)
         info_predictions.append(info_up)
-            
+        coeff_predictions.append(coefficient_8x)
         if self.args.iters > 0:
             # run the feature network
             fmap1_8x = self.fnet(image1)
@@ -225,6 +296,10 @@ class FlowSeek(
             #下采样mask
             mask_8x = F.interpolate(mask, (H//8, W//8), mode="nearest").squeeze(1)  
             mask_8x = assign_uniqueId(mask_8x).unsqueeze(1).detach() #(N,1,H//8,W//8)
+            
+            
+            
+             
             
             fmap1_8x = torch.cat((fmap1_8x,mono1), 1)
             fmap2_8x = torch.cat((fmap2_8x,mono2), 1)
@@ -244,14 +319,16 @@ class FlowSeek(
                 coords2 = (coords_grid(N, H, W, device=image1.device) + flow_8x).detach() #光流＋网格坐标=新的坐标
                 corr = corr_fn(coords2, dilation=dilation)
             
-           
+            
             net = self.update_block(net, context, corr, flow_8x)
             flow_update = self.flow_head(net)
             weight_update = .25 * self.upsample_weight(net)
-            flow_8x = flow_8x + flow_update[:, :2]
-            info_8x = flow_update[:, 2:]
+            flow_8x = flow_8x + base2flow(bases_8x, flow_update[:, :8])
+            info_8x = flow_update[:, 8:]
             # upsample predictions
-            flow_up, info_up = self.upsample_data(flow_8x, info_8x, weight_update)
+            flow_up, info_up = self.upsample_data(flow_8x, info_8x, weight_update)  
+            delta_coeff = flow_update[:, :8]
+            coeff_predictions.append(delta_coeff)
             flow_predictions.append(flow_up)
             info_predictions.append(info_up)
 
@@ -283,6 +360,8 @@ class FlowSeek(
                 nf_loss = torch.logsumexp(weight, dim=1, keepdim=True) - torch.logsumexp(term1.unsqueeze(1) - term2, dim=2)
                 nf_predictions.append(nf_loss)
 
-            return {'final': flow_predictions[-1], 'flow': flow_predictions, 'info': info_predictions, 'nf': nf_predictions}
+
+            return {'final': flow_predictions[-1], 'flow': flow_predictions, 'info': info_predictions, 'nf': nf_predictions, 'coeffs': coeff_predictions, 'mask_8x': mask_8x}
         else:
-            return {'final': flow_predictions[-1], 'flow': flow_predictions, 'info': info_predictions, 'nf': None}
+            
+            return {'final': flow_predictions[-1], 'flow': flow_predictions, 'info': info_predictions, 'nf': None, 'coeffs': coeff_predictions, 'mask_8x': mask_8x}

@@ -222,7 +222,7 @@ def main():
     parser.add_argument('--model', help='checkpoint path', type=str)
     parser.add_argument('--scale', help='input scale', type=int, default=0)
     parser.add_argument('--dataset', help='dataset type', type=str, required=True)
-    parser.add_argument('--fsPP', help='enable fsPP', type=int, default=1)
+    parser.add_argument('--fsPP', help='enable fsPP', type=int, default=0)
     args = parse_args(parser)
     eval(args)
 

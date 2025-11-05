@@ -9,3 +9,4 @@ results
 *.log
 checkpoints/
 data
+output_vis/

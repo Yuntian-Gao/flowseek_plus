@@ -12,6 +12,17 @@ import torch.nn.functional as F
 import torch
 import torch.nn.functional as F
 
+def base2flow(bases, coefficient):
+    """
+    将8个base和8个系数合并为一个系数体
+    Args:
+        bases_8x (torch.Tensor): 8个base, 形状 [N, 16, H, W]
+        coefficient_8x (torch.Tensor): 8个系数, 形状 [N, 8, H, W]
+    Returns:
+        torch.Tensor: 合并后的光流, 形状 [N, 2, H, W]
+    """
+    _, _, H, W = bases.shape
+    return (bases.view(-1, 8, 2, H, W) * coefficient.unsqueeze(2)).sum(dim=1)  # [N, 8, 2, H, W] * [N, 8,1, H, W]=[N, 2, H, W]
 def sample_correlation_from_masks_with_neighborhood_fallback_vectorized(
     corr: torch.Tensor, 
     mask1_HW: torch.Tensor, 

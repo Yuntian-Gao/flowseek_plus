@@ -79,7 +79,7 @@ def train(args, rank=0, world_size=1, use_ddp=False):
     
     total_steps = 0
     VAL_FREQ = 10000
-    LOG_FREQ = 100 # Frequency to write to text file
+    LOG_FREQ = 10 # Frequency to write to text file
     epoch = 0
     should_keep_training = True
     
@@ -90,7 +90,7 @@ def train(args, rank=0, world_size=1, use_ddp=False):
             image1, image2, flow, valid, mask = [x.to(f'cuda:{model.device_ids[0]}') for x in data_blob] 
           
             output = model(image1, image2,mask, flow_gt=flow, iters=args.iters)
-            loss = sequence_loss(output, flow, valid, args.gamma)
+            loss, coeff_loss = sequence_loss(output, flow, valid, args.gamma)
             
             if torch.isnan(loss):
                 print(f"NaN loss at step {total_steps}. Skipping batch.")
@@ -110,7 +110,7 @@ def train(args, rank=0, world_size=1, use_ddp=False):
                 # Log to the custom text file (every LOG_FREQ steps)
                 if total_steps % LOG_FREQ == 0:
                     with open(log_filepath, 'a') as f:
-                        f.write(f"{total_steps}\t{loss.item():.6f}\t{current_lr:.8f}\n")
+                        f.write(f"{total_steps}\t{loss.item():.6f}\t{coeff_loss.item():.6f}\t{current_lr:.8f}\n")
             # --- End Logging ---
 
             if total_steps % VAL_FREQ == VAL_FREQ - 1 and rank == 0:
@@ -147,7 +147,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--savedir', help='enable Depth Anything v2', type=str, default='checkpoints/')
     parser.add_argument('--seed', help='set random seed', type=float, default=0)
-    parser.add_argument('--fsPP', help='enable fsPP', type=int, default=1)
+    parser.add_argument('--fsPP', help='enable fsPP', type=int, default=0)
+    
     args = parse_args(parser)
 
     # setting random seeds

@@ -1,6 +1,6 @@
 SIZE="T"
 GPUS="5"
-FS_PP=1
+FS_PP=0
 # 解析命令行参数
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -23,7 +23,7 @@ export CUDA_VISIBLE_DEVICES=$GPUS
 
 # 开始训练流程
 python train.py --cfg config/train/C368x496-"$SIZE".json --savedir checkpoints/ --fsPP $FS_PP
-# python train.py --cfg config/train/C-T432x960-"$SIZE".json --savedir checkpoints/ --restore_ckpt checkpoints/flowseek_"$SIZE"_C.pth
+# python train.py --cfg config/train/C-T432x960-"$SIZE".json --savedir checkpoints/ --restore_ckpt checkpoints/flowseek_"$SIZE"_C_coeff.pth
 
 # python train.py --cfg config/train/C-T-TSKH432x960-"$SIZE".json --savedir checkpoints/ --restore_ckpt checkpoints/flowseek_"$SIZE"_CT.pth
 # python train.py --cfg config/train/Tartan480x640-"$SIZE".json --savedir checkpoints/ --fsPP $FS_PP

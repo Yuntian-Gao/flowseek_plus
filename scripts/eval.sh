@@ -2,8 +2,8 @@
 
 # 默认值
 
-GPUS="5"
-FS_PP=1
+GPUS="0"
+FS_PP=0
 # 解析命令行参数
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -26,27 +26,27 @@ done
 export CUDA_VISIBLE_DEVICES=$GPUS
 
 # echo "Validation FlowSeek_chairs (T)"
-python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_C_1.pth_20251101124756 --dataset sintel --fsPP $FS_PP
-python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_C_1.pth_20251101124756 --dataset kitti  --fsPP $FS_PP
-echo "Validation FlowSeek_chairs (S)"
-python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_C_1.pth_20251101124756 --dataset sintel --fsPP $FS_PP
-python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_C_1.pth_20251101124756 --dataset kitti  --fsPP $FS_PP
-echo "Validation FlowSeek_chairs (M)"
-python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_C_"$FS_PP".pth --dataset sintel   --fsPP $FS_PP
-python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_C_"$FS_PP".pth --dataset kitti    --fsPP $FS_PP
-echo "Validation FlowSeek_chairs (L)"
-python evaluate.py --cfg config/eval/flowseek-L.json --model weights/flowseek_M_C_"$FS_PP".pth --dataset sintel   --fsPP $FS_PP
-python evaluate.py --cfg config/eval/flowseek-L.json --model weights/flowseek_M_C_"$FS_PP".pth --dataset kitti    --fsPP $FS_PP
+# python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_C_coeff.pth --dataset sintel --fsPP $FS_PP
+# python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_C_coeff.pth --dataset kitti  --fsPP $FS_PP
+# echo "Validation FlowSeek_chairs (S)"
+# python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_C_coeff.pth --dataset sintel --fsPP $FS_PP
+# python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_C_coeff.pth --dataset kitti  --fsPP $FS_PP
+# echo "Validation FlowSeek_chairs (M)"
+# python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_C_"$FS_PP".pth --dataset sintel   --fsPP $FS_PP
+# python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_C_"$FS_PP".pth --dataset kitti    --fsPP $FS_PP
+# echo "Validation FlowSeek_chairs (L)"
+# python evaluate.py --cfg config/eval/flowseek-L.json --model weights/flowseek_M_C_"$FS_PP".pth --dataset sintel   --fsPP $FS_PP
+# python evaluate.py --cfg config/eval/flowseek-L.json --model weights/flowseek_M_C_"$FS_PP".pth --dataset kitti    --fsPP $FS_PP
 
 
-# echo "TABLE 3 (CT)"
-# echo "Validation FlowSeek (T)"
-# python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_CT.pth --dataset sintel
-# python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_CT.pth --dataset kitti
+echo "TABLE 3 (CT)"
+echo "Validation FlowSeek (T)"
+python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_CT_coeff.pth --dataset sintel --fsPP $FS_PP
+python evaluate.py --cfg config/eval/flowseek-T.json --model weights/flowseek_T_CT_coeff.pth --dataset kitti --fsPP $FS_PP
 
-# echo "Validation FlowSeek (S)"
-# python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_CT.pth --dataset sintel
-# python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_CT.pth --dataset kitti
+echo "Validation FlowSeek (S)"
+python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_CT_coeff.pth --dataset sintel --fsPP $FS_PP
+python evaluate.py --cfg config/eval/flowseek-S.json --model weights/flowseek_T_CT_coeff.pth --dataset kitti  --fsPP $FS_PP
 
 # echo "Validation FlowSeek (M)"
 # python evaluate.py --cfg config/eval/flowseek-M.json --model weights/flowseek_M_CT.pth --dataset sintel
